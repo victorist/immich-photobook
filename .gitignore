@@ -1,0 +1,44 @@
+# Секреты и переменные окружения (ОБЯЗАТЕЛЬНО!)
+.env
+*.env
+!*.env.example
+*.key
+*.pem
+
+# Данные контейнеров, базы данных и кэш
+pgdata/
+postgres/
+db/
+model-cache/
+library/
+upload/
+thumbs/
+profile/
+encoded-video/
+
+# Node / JS сборки
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+build/
+**/build/
+.output/
+
+# Сборочные артефакты
+dist/
+build/
+**/dist/
+**/build/
+.output/
+
+# Временные бэкапы файлов (например, PhotoGrid.tsx.bkp)
+*.bkp
+*.bak
+*.swp
+*~
+
+# Логи и временные файлы ОС
+*.log
+.DS_Store
+Thumbs.db
