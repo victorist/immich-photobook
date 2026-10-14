@@ -16,12 +16,15 @@ import {
 } from "@react-pdf/renderer";
 import {
   calculatePageLayout,
+  getDefaultPageAlignment,
   PAGE_SIZES,
   type PageAlignment,
 } from "../utils/pageLayout";
 import type { ImmichConfig } from "./ConnectionForm";
 import roboto400 from "@fontsource/roboto/files/roboto-latin-400-normal.woff?url";
 import roboto500 from "@fontsource/roboto/files/roboto-latin-500-normal.woff?url";
+import robotoCyrillic400 from "@fontsource/roboto/files/roboto-cyrillic-400-normal.woff?url";
+import robotoCyrillic500 from "@fontsource/roboto/files/roboto-cyrillic-500-normal.woff?url";
 import Icon from "@mdi/react";
 import {
   mdiFormatAlignLeft,
@@ -61,6 +64,14 @@ Font.register({
   ],
 });
 
+Font.register({
+  family: "RobotoCyrillic",
+  fonts: [
+    { src: robotoCyrillic400, fontWeight: 400 },
+    { src: robotoCyrillic500, fontWeight: 500 },
+  ],
+});
+
 interface PhotoGridProps {
   immichConfig: ImmichConfig;
   album: AlbumResponseDto;
@@ -95,7 +106,10 @@ interface AlbumConfig extends GlobalConfig {
   customOrdering: string[] | null;
   descriptionPositions: Record<string, Position>;
   pageAlignments: Record<number, PageAlignment>;
+  pageAlignmentVersion: number;
 }
+
+const PAGE_ALIGNMENT_VERSION = 1;
 
 const DEFAULT_GLOBAL_CONFIG: GlobalConfig = {
   pageSize: "CUSTOM",
@@ -140,13 +154,20 @@ function loadAlbumConfig(albumId: string): AlbumConfig {
     const stored = localStorage.getItem(`immich-book-config-${albumId}`);
     if (stored) {
       const albumSpecific = JSON.parse(stored);
+      const pageAlignments =
+        albumSpecific.pageAlignmentVersion === PAGE_ALIGNMENT_VERSION
+          ? albumSpecific.pageAlignments || {}
+          : {};
       return {
         ...globalConfig,
         customAspectRatios: {},
         customOrdering: null,
         descriptionPositions: {},
-        pageAlignments: {},
+        pageAlignments,
+        pageAlignmentVersion: PAGE_ALIGNMENT_VERSION,
         ...albumSpecific,
+        pageAlignments,
+        pageAlignmentVersion: PAGE_ALIGNMENT_VERSION,
       };
     }
   } catch (e) {
@@ -159,6 +180,7 @@ function loadAlbumConfig(albumId: string): AlbumConfig {
     customOrdering: null,
     descriptionPositions: {},
     pageAlignments: {},
+    pageAlignmentVersion: PAGE_ALIGNMENT_VERSION,
   };
 }
 
@@ -282,6 +304,9 @@ const createWebStyles = (fontSize: number) => {
 
 function PhotoGrid({ immichConfig, album, onBack }: PhotoGridProps) {
   const [assets, setAssets] = useState<AssetResponseDto[]>([]);
+  const [albumDescription, setAlbumDescription] = useState(
+    album.description || "",
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<"preview" | "pdf">("preview");
@@ -429,6 +454,7 @@ function PhotoGrid({ immichConfig, album, onBack }: PhotoGridProps) {
       customOrdering,
       descriptionPositions: Object.fromEntries(descriptionPositions),
       pageAlignments: Object.fromEntries(pageAlignments),
+      pageAlignmentVersion: PAGE_ALIGNMENT_VERSION,
     };
     saveAlbumConfig(album.id, config);
   }, [
@@ -462,6 +488,7 @@ const loadAlbumAssets = async () => {
       setIsLoading(true);
       setError(null);
       const albumData = await getAlbumInfo({ id: album.id });
+      setAlbumDescription(albumData.description || album.description || "");
 
       let rawAssets = (albumData as any)?.assets;
 
@@ -1191,12 +1218,19 @@ const loadAlbumAssets = async () => {
                     padding: 40,
                   }}
                 >
-                  <View style={{ marginTop: 30, alignItems: "center" }}>
+                  <View
+                    style={{
+                      width: "100%",
+                      marginTop: 30,
+                      alignItems: "center",
+                    }}
+                  >
                     <Text
+                      hyphenationCallback={(word) => [word]}
                       style={{
-                        maxWidth: "100%",
+                        width: "100%",
                         fontSize: 24,
-                        fontFamily: "Roboto",
+                        fontFamily: "RobotoCyrillic",
                         fontWeight: 500,
                         color: "#1F2937",
                         textAlign: "center",
@@ -1207,10 +1241,27 @@ const loadAlbumAssets = async () => {
                     >
                       {album.albumName}
                     </Text>
+                    {!!albumDescription.trim() && (
+                      <Text
+                        hyphenationCallback={(word) => [word]}
+                        style={{
+                          width: "100%",
+                          fontSize: 12,
+                          fontFamily: "RobotoCyrillic",
+                          fontWeight: 400,
+                          color: "#4B5563",
+                          textAlign: "center",
+                          lineHeight: 1.35,
+                          marginBottom: 8,
+                        }}
+                      >
+                        {albumDescription}
+                      </Text>
+                    )}
                     <Text
                       style={{
                         fontSize: 14,
-                        fontFamily: "Roboto",
+                        fontFamily: "RobotoCyrillic",
                         fontWeight: 400,
                         color: "#6B7280",
                         textAlign: "center",
@@ -1237,7 +1288,7 @@ const loadAlbumAssets = async () => {
                         style={{
                           width: "100%",
                           height: "100%",
-                          objectFit: "cover",
+                          objectFit: "contain",
                         }}
                       />
                     </View>
@@ -1494,6 +1545,11 @@ const loadAlbumAssets = async () => {
                   <h1 className="max-w-full text-2xl leading-tight font-medium text-gray-800">
                     {album.albumName}
                   </h1>
+                  {!!albumDescription.trim() && (
+                    <p className="mt-2 max-w-full whitespace-pre-wrap break-words text-sm leading-relaxed text-gray-600">
+                      {albumDescription}
+                    </p>
+                  )}
                   <p className="mt-2 text-sm text-gray-500">
                     Фотокнига • {assets.length} фото
                   </p>
@@ -1506,7 +1562,7 @@ const loadAlbumAssets = async () => {
                         album.albumThumbnailAssetId || assets[0].id
                       }/thumbnail?size=preview&apiKey=${immichConfig.apiKey}`}
                       alt={album.albumName}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-contain"
                     />
                   </div>
                 )}
@@ -1553,7 +1609,8 @@ const loadAlbumAssets = async () => {
                           }}
                           className={`px-2 py-1 text-xs border rounded transition-colors flex items-center ${
                             (pageAlignments.get(page.pageNumber * 2 - 1) ||
-                              "left") === "left"
+                              getDefaultPageAlignment(page.pageNumber * 2 - 1)) ===
+                            "left"
                               ? "bg-blue-500 text-white border-blue-500"
                               : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
                           }`}
@@ -1570,7 +1627,8 @@ const loadAlbumAssets = async () => {
                           }}
                           className={`px-2 py-1 text-xs border rounded transition-colors flex items-center ${
                             (pageAlignments.get(page.pageNumber * 2 - 1) ||
-                              "left") === "center"
+                              getDefaultPageAlignment(page.pageNumber * 2 - 1)) ===
+                            "center"
                               ? "bg-blue-500 text-white border-blue-500"
                               : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
                           }`}
@@ -1587,7 +1645,8 @@ const loadAlbumAssets = async () => {
                           }}
                           className={`px-2 py-1 text-xs border rounded transition-colors flex items-center ${
                             (pageAlignments.get(page.pageNumber * 2 - 1) ||
-                              "left") === "right"
+                              getDefaultPageAlignment(page.pageNumber * 2 - 1)) ===
+                            "right"
                               ? "bg-blue-500 text-white border-blue-500"
                               : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
                           }`}
@@ -1617,7 +1676,8 @@ const loadAlbumAssets = async () => {
                             }}
                             className={`px-2 py-1 text-xs border rounded transition-colors flex items-center ${
                               (pageAlignments.get(page.pageNumber * 2) ||
-                                "left") === "left"
+                                getDefaultPageAlignment(page.pageNumber * 2)) ===
+                              "left"
                                 ? "bg-blue-500 text-white border-blue-500"
                                 : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
                             }`}
@@ -1634,7 +1694,8 @@ const loadAlbumAssets = async () => {
                             }}
                             className={`px-2 py-1 text-xs border rounded transition-colors flex items-center ${
                               (pageAlignments.get(page.pageNumber * 2) ||
-                                "left") === "center"
+                                getDefaultPageAlignment(page.pageNumber * 2)) ===
+                              "center"
                                 ? "bg-blue-500 text-white border-blue-500"
                                 : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
                             }`}
@@ -1651,7 +1712,8 @@ const loadAlbumAssets = async () => {
                             }}
                             className={`px-2 py-1 text-xs border rounded transition-colors flex items-center ${
                               (pageAlignments.get(page.pageNumber * 2) ||
-                                "left") === "right"
+                                getDefaultPageAlignment(page.pageNumber * 2)) ===
+                              "right"
                                 ? "bg-blue-500 text-white border-blue-500"
                                 : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
                             }`}
@@ -1677,8 +1739,8 @@ const loadAlbumAssets = async () => {
                           setPageAlignments(newAlignments);
                         }}
                         className={`px-2 py-1 text-xs border rounded transition-colors flex items-center ${
-                          (pageAlignments.get(page.pageNumber) || "left") ===
-                          "left"
+                          (pageAlignments.get(page.pageNumber) ||
+                            getDefaultPageAlignment(page.pageNumber)) === "left"
                             ? "bg-blue-500 text-white border-blue-500"
                             : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
                         }`}
@@ -1693,8 +1755,8 @@ const loadAlbumAssets = async () => {
                           setPageAlignments(newAlignments);
                         }}
                         className={`px-2 py-1 text-xs border rounded transition-colors flex items-center ${
-                          (pageAlignments.get(page.pageNumber) || "left") ===
-                          "center"
+                          (pageAlignments.get(page.pageNumber) ||
+                            getDefaultPageAlignment(page.pageNumber)) === "center"
                             ? "bg-blue-500 text-white border-blue-500"
                             : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
                         }`}
@@ -1709,8 +1771,8 @@ const loadAlbumAssets = async () => {
                           setPageAlignments(newAlignments);
                         }}
                         className={`px-2 py-1 text-xs border rounded transition-colors flex items-center ${
-                          (pageAlignments.get(page.pageNumber) || "left") ===
-                          "right"
+                          (pageAlignments.get(page.pageNumber) ||
+                            getDefaultPageAlignment(page.pageNumber)) === "right"
                             ? "bg-blue-500 text-white border-blue-500"
                             : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
                         }`}

@@ -17,6 +17,10 @@ export interface PhotoBox {
 
 export type PageAlignment = "left" | "center" | "right";
 
+export function getDefaultPageAlignment(pageNumber: number): PageAlignment {
+  return pageNumber % 2 === 1 ? "right" : "left";
+}
+
 export interface Page {
   pageNumber: number;
   photos: PhotoBox[];
@@ -201,7 +205,9 @@ export function calculatePageLayout(
   // Apply page alignments per row (before combining pages)
   if (pageAlignments) {
     for (const page of pages) {
-      const alignment = pageAlignments.get(page.pageNumber) || "left";
+      const alignment =
+        pageAlignments.get(page.pageNumber) ||
+        getDefaultPageAlignment(page.pageNumber);
 
       if (page.photos.length > 0 && alignment !== "left") {
         // Group photos by row (photos with same Y position, allowing small tolerance)
