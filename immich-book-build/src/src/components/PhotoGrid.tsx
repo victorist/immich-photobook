@@ -57,7 +57,7 @@ const getAssetAspectRatio = (asset: any): number => {
 
 // Register Roboto font for PDF using local bundled files
 Font.register({
-  family: "Roboto",
+  family: "RobotoLatin",
   fonts: [
     { src: roboto400, fontWeight: 400 },
     { src: roboto500, fontWeight: 500 },
@@ -1298,14 +1298,14 @@ const loadAlbumAssets = async () => {
                     <Text
                       style={{
                         fontSize: 10,
-                        fontFamily: "Roboto",
+                        fontFamily: "RobotoLatin",
                         fontWeight: 400,
                         color: "#9CA3AF",
-                        letterSpacing: 2,
+                        letterSpacing: 1,
                         textTransform: "uppercase",
                       }}
                     >
-                      IMMICH PHOTOBOOK
+                      NEUROCAT & IMMICH PHOTOBOOK
                     </Text>
                   </View>
                 </Page>
@@ -1567,8 +1567,8 @@ const loadAlbumAssets = async () => {
                   </div>
                 )}
 
-                <p className="mb-5 text-[10px] uppercase tracking-[2px] text-gray-400">
-                  IMMICH PHOTOBOOK
+                <p className="mb-5 text-[10px] uppercase tracking-[1px] text-gray-400">
+                  NEUROCAT & IMMICH PHOTOBOOK
                 </p>
               </div>
             </div>
