@@ -465,31 +465,52 @@ const loadAlbumAssets = async () => {
 
       let rawAssets = (albumData as any)?.assets;
 
-      // Если в ответе нет assets (Immich v3+), подгружаем через прямой запрос
+      // Immich v3 returns album metadata without its assets.
       if (!rawAssets || !Array.isArray(rawAssets)) {
-        const response = await fetch(
-          `${immichConfig.baseUrl.replace(/\/+$/, "")}/search/metadata`,
-          {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": immichConfig.apiKey,
-            "Accept": "application/json",
-          },
-          body: JSON.stringify({
-            albumId: album.id,
-            isVisible: true,
-            size: 1000,    // новый параметр размера фотографии
-          }),
-          },
-        );
+        const assetsUrl = `${immichConfig.baseUrl.replace(/\/+$/, "")}/search/metadata`;
+        const albumAssets: AssetResponseDto[] = [];
+        const seenCursors = new Set<string>();
+        let cursor: string | undefined;
 
-        if (!response.ok) {
-          throw new Error(`Failed to fetch album assets: HTTP ${response.status}`);
-        }
+        do {
+          const response = await fetch(assetsUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-api-key": immichConfig.apiKey,
+              Accept: "application/json",
+            },
+            body: JSON.stringify({
+              albumIds: [album.id],
+              size: 1000,
+              withExif: true,
+              ...(cursor ? { cursor } : {}),
+            }),
+          });
 
-        const searchResult = await response.json();
-        rawAssets = searchResult?.assets?.items || searchResult?.items || searchResult || [];
+          if (!response.ok) {
+            throw new Error(
+              `Failed to fetch album assets: HTTP ${response.status}`,
+            );
+          }
+
+          const searchResult = await response.json();
+          const assetPage = searchResult?.assets;
+          if (!Array.isArray(assetPage?.items)) {
+            throw new Error("Immich returned an unexpected album assets response");
+          }
+
+          albumAssets.push(...assetPage.items);
+          const nextCursor = assetPage.nextCursor;
+          if (!nextCursor || seenCursors.has(nextCursor)) {
+            cursor = undefined;
+          } else {
+            seenCursors.add(nextCursor);
+            cursor = nextCursor;
+          }
+        } while (cursor);
+
+        rawAssets = albumAssets;
       }
 
       // Sort assets by creation date ascending
