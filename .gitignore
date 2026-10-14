@@ -15,6 +15,7 @@ upload/
 thumbs/
 profile/
 encoded-video/
+*.sql
 
 # Node / JS сборки
 node_modules/

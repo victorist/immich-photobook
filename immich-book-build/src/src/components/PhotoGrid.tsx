@@ -335,6 +335,7 @@ function PhotoGrid({ immichConfig, album, onBack }: PhotoGridProps) {
   const [showDescriptions, setShowDescriptions] = useState(
     initialConfig.showDescriptions,
   );
+  const [includeCover, setIncludeCover] = useState(true);
   const [fontSize, setFontSize] = useState(initialConfig.fontSize);
 
   // Create dynamic styles based on current fontSize
@@ -466,28 +467,13 @@ const loadAlbumAssets = async () => {
 
       // Если в ответе нет assets (Immich v3+), подгружаем через прямой запрос
       if (!rawAssets || !Array.isArray(rawAssets)) {
-        const rawConfig = localStorage.getItem("immich-config");
-        let serverUrl = window.location.origin;
-        let apiKey = "";
-
-        if (rawConfig) {
-          try {
-            const parsed = JSON.parse(rawConfig);
-            serverUrl = parsed.serverUrl || window.location.origin;
-            apiKey = parsed.apiKey || "";
-          } catch (e) {
-            console.error("Failed to parse immich-config", e);
-          }
-        }
-
-        // Убираем слэш на конце, если он есть
-        serverUrl = serverUrl.replace(/\/+$/, "");
-
-        const response = await fetch(`${serverUrl}/api/search/metadata`, {
+        const response = await fetch(
+          `${immichConfig.baseUrl.replace(/\/+$/, "")}/search/metadata`,
+          {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "x-api-key": apiKey,
+            "x-api-key": immichConfig.apiKey,
             "Accept": "application/json",
           },
           body: JSON.stringify({
@@ -495,7 +481,8 @@ const loadAlbumAssets = async () => {
             isVisible: true,
             size: 1000,    // новый параметр размера фотографии
           }),
-        });
+          },
+        );
 
         if (!response.ok) {
           throw new Error(`Failed to fetch album assets: HTTP ${response.status}`);
@@ -1059,6 +1046,21 @@ const loadAlbumAssets = async () => {
                   </label>
                 </div>
                 <div className="flex items-center gap-1">
+                  <input
+                    type="checkbox"
+                    id="includeCover"
+                    checked={includeCover}
+                    onChange={(e) => setIncludeCover(e.target.checked)}
+                    className="h-3 w-3"
+                  />
+                  <label
+                    htmlFor="includeCover"
+                    className="text-xs text-gray-700"
+                  >
+                    Cover Page
+                  </label>
+                </div>
+                <div className="flex items-center gap-1">
                   <label htmlFor="fontSize" className="text-gray-600 text-xs">
                     Font Size:
                   </label>
@@ -1152,6 +1154,90 @@ const loadAlbumAssets = async () => {
         >
           <PDFViewer width="100%" height="100%" showToolbar={true}>
             <Document pageLayout={pageLayout}>
+              {includeCover && pages.length > 0 && (
+                <Page
+                  key="cover-page"
+                  size={{
+                    width: toPoints(pages[0].width),
+                    height: toPoints(pages[0].height),
+                  }}
+                  style={{
+                    backgroundColor: "#FFFFFF",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: 40,
+                  }}
+                >
+                  <View style={{ marginTop: 30, alignItems: "center" }}>
+                    <Text
+                      style={{
+                        maxWidth: "100%",
+                        fontSize: 24,
+                        fontFamily: "Roboto",
+                        fontWeight: 500,
+                        color: "#1F2937",
+                        textAlign: "center",
+                        letterSpacing: 0,
+                        lineHeight: 1.2,
+                        marginBottom: 10,
+                      }}
+                    >
+                      {album.albumName}
+                    </Text>
+                    <Text
+                      style={{
+                        fontSize: 14,
+                        fontFamily: "Roboto",
+                        fontWeight: 400,
+                        color: "#6B7280",
+                        textAlign: "center",
+                      }}
+                    >
+                      Фотокнига • {assets.length} фото
+                    </Text>
+                  </View>
+
+                  {(album.albumThumbnailAssetId || assets[0]?.id) && (
+                    <View
+                      style={{
+                        width: "80%",
+                        height: "65%",
+                        borderRadius: 4,
+                        overflow: "hidden",
+                        backgroundColor: "#F3F4F6",
+                      }}
+                    >
+                      <Image
+                        src={`${immichConfig.baseUrl}/assets/${
+                          album.albumThumbnailAssetId || assets[0].id
+                        }/thumbnail?size=preview&apiKey=${immichConfig.apiKey}`}
+                        style={{
+                          width: "100%",
+                          height: "100%",
+                          objectFit: "cover",
+                        }}
+                      />
+                    </View>
+                  )}
+
+                  <View style={{ marginBottom: 20 }}>
+                    <Text
+                      style={{
+                        fontSize: 10,
+                        fontFamily: "Roboto",
+                        fontWeight: 400,
+                        color: "#9CA3AF",
+                        letterSpacing: 2,
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      IMMICH PHOTOBOOK
+                    </Text>
+                  </View>
+                </Page>
+              )}
               {pages.map((pageData) => {
                 // FIXME: pdfkit (internal of react-pdf) uses 72dpi internally and we downscale everything here;
                 // instead we should produce a high-quality 300 dpi pdf
@@ -1361,6 +1447,55 @@ const loadAlbumAssets = async () => {
       ) : (
         /* Live Preview */
         <div className="space-y-8 pb-8 overflow-x-auto px-4 sm:px-0">
+          {includeCover && pages.length > 0 && (
+            <div className="relative">
+              <div
+                className="mb-2 flex justify-center"
+                style={{
+                  width: `${toPoints(pages[0].width)}px`,
+                  marginLeft: "auto",
+                  marginRight: "auto",
+                }}
+              >
+                <span className="inline-block px-3 py-1 bg-gray-100 text-gray-600 text-sm rounded">
+                  Cover Page
+                </span>
+              </div>
+              <div
+                className="relative bg-white shadow-lg mx-auto border border-gray-200 flex flex-col items-center justify-between"
+                style={{
+                  width: `${toPoints(pages[0].width)}px`,
+                  height: `${toPoints(pages[0].height)}px`,
+                  padding: 40,
+                }}
+              >
+                <div className="mt-[30px] w-full flex flex-col items-center text-center">
+                  <h1 className="max-w-full text-2xl leading-tight font-medium text-gray-800">
+                    {album.albumName}
+                  </h1>
+                  <p className="mt-2 text-sm text-gray-500">
+                    Фотокнига • {assets.length} фото
+                  </p>
+                </div>
+
+                {(album.albumThumbnailAssetId || assets[0]?.id) && (
+                  <div className="w-4/5 h-[65%] overflow-hidden rounded bg-gray-100">
+                    <img
+                      src={`${immichConfig.baseUrl}/assets/${
+                        album.albumThumbnailAssetId || assets[0].id
+                      }/thumbnail?size=preview&apiKey=${immichConfig.apiKey}`}
+                      alt={album.albumName}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                )}
+
+                <p className="mb-5 text-[10px] uppercase tracking-[2px] text-gray-400">
+                  IMMICH PHOTOBOOK
+                </p>
+              </div>
+            </div>
+          )}
           {pages.map((page) => {
             // Scale down to match PDF dimensions (72 DPI from 300 DPI)
             const displayWidth = toPoints(page.width);

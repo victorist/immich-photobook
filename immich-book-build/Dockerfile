@@ -3,6 +3,8 @@ WORKDIR /app
 COPY src/package*.json ./
 RUN npm ci
 COPY src/ ./
+ENV VITE_BASE_PATH=/book/
+ENV VITE_IMMICH_PROXY_TARGET=https://mypawka.neurocat.ru
 RUN npm run build
 
 FROM nginx:alpine
