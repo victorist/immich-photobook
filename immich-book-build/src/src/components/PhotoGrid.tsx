@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   getAlbumInfo,
   type AlbumResponseDto,
@@ -58,6 +58,14 @@ const getAssetAspectRatio = (asset: any): number => {
 // Register Roboto font for PDF using local bundled files
 Font.register({
   family: "RobotoLatin",
+  fonts: [
+    { src: roboto400, fontWeight: 400 },
+    { src: roboto500, fontWeight: 500 },
+  ],
+});
+
+Font.register({
+  family: "Roboto",
   fonts: [
     { src: roboto400, fontWeight: 400 },
     { src: roboto500, fontWeight: 500 },
@@ -310,6 +318,14 @@ function PhotoGrid({ immichConfig, album, onBack }: PhotoGridProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<"preview" | "pdf">("preview");
+  const [isPreparingPdf, setIsPreparingPdf] = useState(false);
+  const [pdfPreparation, setPdfPreparation] = useState({ done: 0, total: 0 });
+  const [pdfPreparingFile, setPdfPreparingFile] = useState("");
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const [pdfImageSources, setPdfImageSources] = useState<Map<string, string>>(
+    () => new Map(),
+  );
+  const pdfImageSourcesRef = useRef(new Map<string, string>());
 
   // Load config on mount
   const initialConfig = useMemo(() => loadAlbumConfig(album.id), [album.id]);
@@ -366,6 +382,16 @@ function PhotoGrid({ immichConfig, album, onBack }: PhotoGridProps) {
   // Create dynamic styles based on current fontSize
   const pdfStyles = useMemo(() => createDynamicStyles(fontSize), [fontSize]);
   const webStyles = useMemo(() => createWebStyles(fontSize), [fontSize]);
+
+  useEffect(() => {
+    return () => {
+      for (const source of pdfImageSourcesRef.current.values()) {
+        if (source.startsWith("blob:")) {
+          URL.revokeObjectURL(source);
+        }
+      }
+    };
+  }, []);
 
   // Customizations
   const [customAspectRatios, setCustomAspectRatios] = useState<
@@ -552,6 +578,90 @@ const loadAlbumAssets = async () => {
       setError((err as Error).message || "Failed to load album assets");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const preparePdf = async () => {
+    const images = filteredAssets.filter((asset) => asset.type === "IMAGE");
+    setIsPreparingPdf(true);
+    setPdfError(null);
+    setPdfPreparingFile("");
+
+    const sources = new Map(pdfImageSourcesRef.current);
+    const queue = images.filter((asset) => !sources.has(asset.id));
+    setPdfPreparation({ done: images.length - queue.length, total: images.length });
+    let nextIndex = 0;
+
+    const prepareNext = async (): Promise<void> => {
+      const index = nextIndex++;
+      if (index >= queue.length) return;
+
+      const asset = queue[index];
+      setPdfPreparingFile(asset.originalFileName || asset.id);
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 120_000);
+      try {
+        const response = await fetch(
+          `${immichConfig.baseUrl}/assets/${asset.id}/thumbnail?size=fullsize`,
+          {
+            headers: { "x-api-key": immichConfig.apiKey },
+            signal: controller.signal,
+          },
+        );
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const disposition = response.headers.get("content-disposition") || "";
+        const isHeic =
+          asset.originalMimeType?.toLowerCase().includes("heic") ||
+          asset.originalMimeType?.toLowerCase().includes("heif") ||
+          /\.(heic|heif)$/i.test(asset.originalFileName);
+        if (isHeic && /_preview\./i.test(disposition)) {
+          throw new Error(
+            "Immich only returned a preview for this HEIC image. Enable Fullsize thumbnails in Immich and regenerate this asset's thumbnails, then retry.",
+          );
+        }
+
+        const imageBlob = await response.blob();
+        if (!["image/jpeg", "image/jpg", "image/png"].includes(imageBlob.type.toLowerCase())) {
+          throw new Error(
+            `Immich returned unsupported PDF image format ${imageBlob.type || "unknown"}`,
+          );
+        }
+        const source = URL.createObjectURL(imageBlob);
+        sources.set(asset.id, source);
+        pdfImageSourcesRef.current.set(asset.id, source);
+      } catch (assetError) {
+        const reason =
+          assetError instanceof DOMException && assetError.name === "AbortError"
+            ? "Download timed out after 2 minutes"
+            : (assetError as Error).message;
+        throw new Error(
+          `Failed to prepare ${asset.originalFileName || asset.id}: ${reason}`,
+        );
+      } finally {
+        window.clearTimeout(timeout);
+        setPdfPreparation((progress) => ({ ...progress, done: progress.done + 1 }));
+      }
+
+      await prepareNext();
+    };
+
+    try {
+      const results = await Promise.allSettled(
+        Array.from({ length: Math.min(4, queue.length) }, () => prepareNext()),
+      );
+      const failedResult = results.find(
+        (result): result is PromiseRejectedResult => result.status === "rejected",
+      );
+      if (failedResult) throw failedResult.reason;
+      setMode("pdf");
+    } catch (prepareError) {
+      setPdfError((prepareError as Error).message);
+    } finally {
+      setPdfImageSources(new Map(pdfImageSourcesRef.current));
+      setIsPreparingPdf(false);
     }
   };
 
@@ -868,10 +978,13 @@ const loadAlbumAssets = async () => {
           <div className="mt-4">
             {mode === "preview" ? (
               <button
-                onClick={() => setMode("pdf")}
-                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-colors shadow-sm"
+                onClick={preparePdf}
+                disabled={isPreparingPdf}
+                className="w-full max-w-xl px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-blue-300 font-medium transition-colors shadow-sm"
               >
-                Generate PDF
+                {isPreparingPdf
+                  ? `Preparing originals (${pdfPreparation.done}/${pdfPreparation.total})...`
+                  : "Generate PDF"}
               </button>
             ) : (
               <button
@@ -882,6 +995,24 @@ const loadAlbumAssets = async () => {
               </button>
             )}
           </div>
+          {isPreparingPdf && pdfPreparingFile && (
+            <p className="mt-2 w-full max-w-xl text-xs leading-relaxed text-gray-600">
+              <span className="font-medium">Current file: </span>
+              <span className="[overflow-wrap:anywhere]">{pdfPreparingFile}</span>
+            </p>
+          )}
+          {pdfError && (
+            <div className="mt-3 max-w-xl rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+              <p>{pdfError}</p>
+              <button
+                onClick={preparePdf}
+                disabled={isPreparingPdf}
+                className="mt-2 font-medium underline disabled:opacity-50"
+              >
+                Retry PDF preparation
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="space-y-2 w-full lg:w-auto">
@@ -1282,9 +1413,14 @@ const loadAlbumAssets = async () => {
                       }}
                     >
                       <Image
-                        src={`${immichConfig.baseUrl}/assets/${
-                          album.albumThumbnailAssetId || assets[0].id
-                        }/thumbnail?size=preview&apiKey=${immichConfig.apiKey}`}
+                        src={
+                          pdfImageSources.get(
+                            album.albumThumbnailAssetId || assets[0].id,
+                          ) ||
+                          `${immichConfig.baseUrl}/assets/${
+                            album.albumThumbnailAssetId || assets[0].id
+                          }/thumbnail?size=preview&apiKey=${immichConfig.apiKey}`
+                        }
                         style={{
                           width: "100%",
                           height: "100%",
@@ -1341,7 +1477,9 @@ const loadAlbumAssets = async () => {
                     )}
 
                     {pageData.photos.map((photoBox) => {
-                      const imageUrl = `${immichConfig.baseUrl}/assets/${photoBox.asset.id}/thumbnail?size=preview&apiKey=${immichConfig.apiKey}`;
+                      const imageUrl =
+                        pdfImageSources.get(photoBox.asset.id) ||
+                        `${immichConfig.baseUrl}/assets/${photoBox.asset.id}/thumbnail?size=preview&apiKey=${immichConfig.apiKey}`;
                       const descPosition =
                         descriptionPositions.get(photoBox.asset.id) || "bottom";
                       const hasDescription =
